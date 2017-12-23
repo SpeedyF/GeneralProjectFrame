@@ -1,0 +1,155 @@
+set(CMAKE_MINIMUM_REQUIRED_VERSION 3.5)
+cmake_minimum_required(VERSION ${CMAKE_MINIMUM_REQUIRED_VERSION})
+
+#-----------------------------------------------------------------------------
+# See http://www.cmake.org/cmake/help/v3.5/manual/cmake-policies.7.html for details
+#-----------------------------------------------------------------------------
+
+set(project_policies )
+foreach(policy ${project_policies})
+  if(POLICY ${policy})
+    cmake_policy(SET ${policy} NEW)
+  endif()
+endforeach()
+
+#---------------------------------------------
+# Build the Project/Solution
+#---------------------------------------------
+
+project(NameDemo) # Modify this 'NameDemo' for your custom project name 
+
+set(MYPROJ_SOURCE_DIR ${PROJECT_SOURCE_DIR})
+set(MYPROJ_BINARY_DIR ${PROJECT_BINARY_DIR})
+set(BUILD_SHARED_LIBS ON)
+
+if(NOT MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL)
+  #set(MITK_THIRDPARTY_DOWNLOAD_PREFIX_URL http://mitk.org/download/thirdparty)
+  set(MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL ftp://192.168.0.144/MITKABOUT/thirdparty)
+endif()
+
+# ----------- QT5 --------------
+option(PROJ_USE_QT5 "Build the project with qt5." ON)
+
+set(CMAKE_INCLUDE_CURRENT_DIR ON) 
+
+if(PROJ_USE_QT5)
+  find_package(Qt5Widgets)
+  find_package(Qt5Core)
+  find_package(Qt5Gui)
+endif()
+
+set(CMAKE_AUTOMOC ON)
+
+FILE(GLOB SRC_FILES "./*.c**") 
+FILE(GLOB HEAD_FILES "./*.h**") 
+FILE(GLOB UI_FILES "./*.ui") 
+FILE(GLOB RCC_FILES "./*.qrc") 
+
+qt5_wrap_ui(WRAP_FILES ${UI_FILES})
+
+
+# ----------- ITK --------------
+
+
+# ----------- VTK --------------
+
+
+# ----------- OpenCV ------------
+
+
+
+
+# ----------- OpenMP -------------
+
+
+
+# ----------- CUDA --------------
+
+
+# ----------- DL models ------------
+
+
+
+
+# ----------- Boost --------------
+
+
+
+# ----------- GDCM ---------------
+
+
+
+# ------------ MPI ---------------
+
+
+# ----------- MKL ----------------
+
+
+
+# ----------- OTHERS --------------
+
+
+include(CheckFunctionExists)
+check_function_exists(printf HAVE_PRINTF)
+
+add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} ${RCC_FILES} ${WRAP_FILES})
+
+target_link_libraries(${PROJECT_NAME} Qt5::Widgets Qt5::Core Qt5::Gui)
+
+#-----------------------------------------------------------------------------
+# Check miminum compiler versions
+#-----------------------------------------------------------------------------
+
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  # require at least gcc 4.9 as provided by ppa:ubuntu-toolchain-r/test for Ubuntu 12.04
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9)
+    message(FATAL_ERROR "GCC version must be at least 4.9
+If you are using Ubuntu 12.04, you can easily install gcc and g++ 4.9 (or any later version available) in addition to your version ${CMAKE_CXX_COMPILER_VERSION}:
+  sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+  sudo apt-get update
+  sudo apt-get install gcc-4.9 g++-4.9
+Make sure to explicitly specify these compilers when configuring MYPROJ:
+  CMAKE_C_COMPILER:FILEPATH=/usr/bin/gcc-4.9
+  CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++-4.9
+For more information on the proposed PPA see the Toolchain Updates section of https://wiki.ubuntu.com/ToolChain.")
+  endif()
+elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  # require at least clang 3.4 as provided by Ubuntu 12.04
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 3.4)
+    message(FATAL_ERROR "Clang version must be at least 3.4")
+  endif()
+elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
+  # require at least clang 5.0
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5.0)
+    message(FATAL_ERROR "Apple Clang version must be at least 5.0")
+  endif()
+elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+  # require at least Visual Studio 2013
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 18.0.40629.0)
+    message(FATAL_ERROR "Microsoft Visual Studio 2013 Update 5 or newer required (MSVC 18.0.40629.0)")
+  endif()
+else()
+  message(WARNING "You are using an unsupported compiler! Compilation has only been tested with Clang (Linux or Apple), GCC and MSVC.")
+endif()
+
+#-----------------------------------------------------------------------------
+# Warn if source or build path is too long, just for better optimizing your naming conventions
+#-----------------------------------------------------------------------------
+
+if(WIN32)
+  set(_src_dir_length_max 120)
+  set(_bin_dir_length_max 120)
+
+  string(LENGTH "${MYPROJ_SOURCE_DIR}" _src_n)
+  string(LENGTH "${MYPROJ_BINARY_DIR}" _bin_n)
+
+  # The warnings should be converted to errors
+  if(_src_n GREATER _src_dir_length_max)
+    message(WARNING "The source code directory path length is too long (${_src_n} > ${_src_dir_length_max})."
+                    "Please move the current source code directory to a directory with a shorter path." )
+  endif()
+  if(_bin_n GREATER _bin_dir_length_max)
+    message(WARNING "The build directory path length is too long (${_bin_n} > ${_bin_dir_length_max})."
+                    "Please move the current build directory to a directory with a shorter path." )
+  endif()
+endif()
