@@ -1,5 +1,5 @@
-#/// GeneralProjectFrame
-#for both Algorithm Design&amp;Development and Software UI  Design&amp;Development
+# GeneralProjectFrame
+///for both Algorithm Design&amp;Development and Software UI  Design&amp;Development
 
 It will automatically include Std C++, QT5, ITK, VTK, OpenCV, DL models, CUDA, etc, which is designed to mainly facilitate related users.
 Tool --- Cmake 
