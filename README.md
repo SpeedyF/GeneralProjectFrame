@@ -6,5 +6,5 @@ Tool --- Cmake
 To be continued. on 12/22.2017 By jfsufeng[at]gmail[dot]com
 
 # ------------ Below are new notes&comments----- 
-V6.1.0.0 Qt5 Added.
-V6.1.0.1 OpenCV Added.
+> V6.1.0.0 Qt5 Added.  
+> V6.1.0.1 OpenCV Added.
