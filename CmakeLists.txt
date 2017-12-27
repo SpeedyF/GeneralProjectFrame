@@ -5,6 +5,12 @@ cmake_minimum_required(VERSION ${CMAKE_MINIMUM_REQUIRED_VERSION})
 # See http://www.cmake.org/cmake/help/v3.5/manual/cmake-policies.7.html for details
 #-----------------------------------------------------------------------------
 
+# -----------include part ------------
+include(ExternalProject)	# Owned by CMake
+include(FunctionInstallExternalCMakeProject.cmake)
+include(MacroEmptyExternalProject.cmake)
+
+
 set(project_policies )
 foreach(policy ${project_policies})
   if(POLICY ${policy})
@@ -23,8 +29,74 @@ set(MYPROJ_BINARY_DIR ${PROJECT_BINARY_DIR})
 set(BUILD_SHARED_LIBS ON)
 
 if(NOT MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL)
-  #set(MITK_THIRDPARTY_DOWNLOAD_PREFIX_URL http://mitk.org/download/thirdparty)
-  set(MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL ftp://192.168.0.144/MITKABOUT/thirdparty)
+  #set( MITK_THIRDPARTY_DOWNLOAD_PREFIX_URL http://mitk.org/download/thirdparty )
+  set( MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL ftp://192.168.0.144/MITKABOUT/thirdparty )
+endif()
+
+macro(downloadFile url dest)
+  file(DOWNLOAD ${url} ${dest} STATUS status)
+  list(GET status 0 error_code)
+  list(GET status 1 error_msg)
+  if(error_code)
+    message(FATAL_ERROR "error: Failed to download ${url} - ${error_msg}")
+  else()
+	message("Having downloaded successfully !")
+  endif()
+endmacro()
+
+set(ep_prefix "${CMAKE_BINARY_DIR}/ep")
+set_property(DIRECTORY PROPERTY EP_PREFIX ${ep_prefix})
+# Compute -G arg for configuring external projects with the same CMake generator:
+if(CMAKE_EXTRA_GENERATOR)
+  set(gen "${CMAKE_EXTRA_GENERATOR} - ${CMAKE_GENERATOR}")
+else()
+  set(gen "${CMAKE_GENERATOR}")
+endif()
+
+set(ep_common_args
+  -DBUILD_TESTING:BOOL=${ep_build_testing}
+  -DCMAKE_INSTALL_PREFIX:PATH=${ep_install_dir}
+  -DBUILD_SHARED_LIBS:BOOL=${ep_build_shared_libs}
+  -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+  -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
+  -DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
+  -DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS}
+  -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
+  # debug flags
+  -DCMAKE_CXX_FLAGS_DEBUG:STRING=${CMAKE_CXX_FLAGS_DEBUG}
+  -DCMAKE_C_FLAGS_DEBUG:STRING=${CMAKE_C_FLAGS_DEBUG}
+  # release flags
+  -DCMAKE_CXX_FLAGS_RELEASE:STRING=${CMAKE_CXX_FLAGS_RELEASE}
+  -DCMAKE_C_FLAGS_RELEASE:STRING=${CMAKE_C_FLAGS_RELEASE}
+  # relwithdebinfo
+  -DCMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
+  -DCMAKE_C_FLAGS_RELWITHDEBINFO:STRING=${CMAKE_C_FLAGS_RELWITHDEBINFO}
+  # link flags
+  -DCMAKE_EXE_LINKER_FLAGS:STRING=${CMAKE_EXE_LINKER_FLAGS}
+  -DCMAKE_SHARED_LINKER_FLAGS:STRING=${CMAKE_SHARED_LINKER_FLAGS}
+  -DCMAKE_MODULE_LINKER_FLAGS:STRING=${CMAKE_MODULE_LINKER_FLAGS}
+)
+set(ep_common_cache_args
+)
+
+set(ep_common_cache_default_args
+  "-DCMAKE_PREFIX_PATH:PATH=${CMAKE_PREFIX_PATH}"
+  "-DCMAKE_INCLUDE_PATH:PATH=${CMAKE_INCLUDE_PATH}"
+  "-DCMAKE_LIBRARY_PATH:PATH=${CMAKE_LIBRARY_PATH}"
+)
+
+# ------------- patch ------------------
+# We need a proper patch program. On Linux and MacOS, we assume
+# that "patch" is available. On Windows, we download patch.exe
+# if not patch program is found.
+find_program(PATCH_COMMAND patch)
+if((NOT PATCH_COMMAND OR NOT EXISTS ${PATCH_COMMAND}) AND WIN32)
+  downloadFile(${MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL}/patch.exe
+               ${CMAKE_CURRENT_BINARY_DIR}/patch.exe)
+  find_program(PATCH_COMMAND patch ${CMAKE_CURRENT_BINARY_DIR})
+endif()
+if(NOT PATCH_COMMAND)
+  message(FATAL_ERROR "No patch program found.")
 endif()
 
 # ----------- QT5 --------------
@@ -36,16 +108,15 @@ if(PROJ_USE_QT5)
   find_package(Qt5Widgets)
   find_package(Qt5Core)
   find_package(Qt5Gui)
+  
+  set(CMAKE_AUTOMOC ON)
+  FILE(GLOB UI_FILES "./*.ui")
+  FILE(GLOB RCC_FILES "./*.qrc")
+  qt5_wrap_ui(WRAP_FILES ${UI_FILES})
 endif()
-
-set(CMAKE_AUTOMOC ON)
 
 FILE(GLOB SRC_FILES "./*.c**") 
 FILE(GLOB HEAD_FILES "./*.h**") 
-FILE(GLOB UI_FILES "./*.ui") 
-FILE(GLOB RCC_FILES "./*.qrc") 
-
-qt5_wrap_ui(WRAP_FILES ${UI_FILES})
 
 
 # ----------- ITK --------------
@@ -54,10 +125,80 @@ qt5_wrap_ui(WRAP_FILES ${UI_FILES})
 # ----------- VTK --------------
 
 
-# ----------- OpenCV ------------
+# *************** OpenCV ************
+option(PROJ_USE_OpenCV "Build the project with OpenCV." ON)
+if(PROJ_USE_OpenCV)
 
+  # Sanity checks
+  if(DEFINED OpenCV_DIR AND NOT EXISTS ${OpenCV_DIR})
+    message(FATAL_ERROR "OpenCV_DIR variable is defined but corresponds to non-existing directory")
+  endif()
 
+  set(proj OpenCV)
+  set(proj_DEPENDENCIES)
+  set(OpenCV_DEPENDS ${proj})
 
+  if(NOT DEFINED OpenCV_DIR)
+
+    set(additional_cmake_args
+      -DBUILD_opencv_java:BOOL=OFF
+      -DBUILD_opencv_ts:BOOL=OFF
+      -DBUILD_PERF_TESTS:BOOL=OFF
+    )
+
+    # 12-05-02, muellerm, added QT usage by OpenCV if QT is used
+    # 12-09-11, muellerm, removed automatic usage again, since this will struggle with the Qt application object
+    if(PROJ_USE_QT5)
+      list(APPEND additional_cmake_args
+           -DWITH_QT:BOOL=OFF
+           -DWITH_QT_OPENGL:BOOL=OFF
+           -DQT_QMAKE_EXECUTABLE:FILEPATH=${QT_QMAKE_EXECUTABLE}
+          )
+    endif()
+
+    set(opencv_url ${MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL}/opencv-2.4.13.2.tar.gz)
+    set(opencv_url_md5 80a4a3bee0e98898bbbc68986ca73655)
+
+    ExternalProject_Add(${proj}
+      LIST_SEPARATOR ${sep}
+      URL ${opencv_url}
+      URL_MD5 ${opencv_url_md5}
+      # Related bug: http://bugs.mitk.org/show_bug.cgi?id=5912
+      PATCH_COMMAND ${PATCH_COMMAND} -N -p1 -i ${CMAKE_CURRENT_LIST_DIR}/OpenCV.patch
+      CMAKE_GENERATOR ${gen}
+      CMAKE_ARGS
+        ${ep_common_args}
+		-DBUILD_opencv_python:BOOL=OFF
+        -DBUILD_NEW_PYTHON_SUPPORT:BOOL=OFF
+        -DBUILD_TESTS:BOOL=OFF
+        -DBUILD_DOCS:BOOL=OFF
+        -DBUILD_EXAMPLES:BOOL=OFF
+        -DBUILD_DOXYGEN_DOCS:BOOL=OFF
+        -DWITH_CUDA:BOOL=ON
+		
+        ${additional_cmake_args}
+      CMAKE_CACHE_ARGS
+        ${ep_common_cache_args}
+      CMAKE_CACHE_DEFAULT_ARGS
+        ${ep_common_cache_default_args}
+      DEPENDS ${proj_DEPENDENCIES}
+    )
+
+    set(OpenCV_DIR ${ep_prefix})
+    FunctionInstallExternalCMakeProject(${proj})
+
+  else()
+
+    MacroEmptyExternalProject(${proj} "${proj_DEPENDENCIES}")
+
+  endif()
+
+endif()
+
+#set (OpenCV_DIR D:\Program Files\opencv-3.2.0\opencv\build) 
+find_package(OpenCV)
+include_directories(${OpenCV_INCLUDE_DIR})
+link_directories(${OpenCV_LIBRARY_DIR})
 
 # ----------- OpenMP -------------
 
@@ -94,7 +235,7 @@ check_function_exists(printf HAVE_PRINTF)
 
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} ${RCC_FILES} ${WRAP_FILES})
 
-target_link_libraries(${PROJECT_NAME} Qt5::Widgets Qt5::Core Qt5::Gui)
+target_link_libraries(${PROJECT_NAME} Qt5::Widgets Qt5::Core Qt5::Gui ${OpenCV_LIBRARIES})
 
 #-----------------------------------------------------------------------------
 # Check miminum compiler versions
