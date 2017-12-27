@@ -5,4 +5,6 @@ It will automatically include Std C++, QT5, ITK, VTK, OpenCV, DL models, CUDA, e
 Tool --- Cmake 
 To be continued. on 12/22.2017 By jfsufeng[at]gmail[dot]com
 
-# ------------------------ Below are new notes&comments----- 
+# ------------ Below are new notes&comments----- 
+V6.1.0.0 Qt5 Added.
+V6.1.0.1 OpenCV Added.
