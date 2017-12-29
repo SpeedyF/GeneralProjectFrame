@@ -1,0 +1,78 @@
+#-----------------------------------------------------------------------------
+# ITK
+#-----------------------------------------------------------------------------
+
+# Sanity checks
+if(DEFINED ITK_DIR AND NOT EXISTS ${ITK_DIR})
+  message(FATAL_ERROR "ITK_DIR variable is defined but corresponds to non-existing directory")
+endif()
+
+set(proj ITK)
+set(proj_DEPENDENCIES GDCM)
+
+if(PROJ_USE_OpenCV)
+  list(APPEND proj_DEPENDENCIES OpenCV)
+endif()
+
+if(PROJ_USE_HDF5)
+  list(APPEND proj_DEPENDENCIES HDF5)
+endif()
+
+set(ITK_DEPENDS ${proj})
+
+if(NOT DEFINED ITK_DIR)
+
+  set(additional_cmake_args )
+  if(MINGW)
+    set(additional_cmake_args
+        -DCMAKE_USE_WIN32_THREADS:BOOL=ON
+        -DCMAKE_USE_PTHREADS:BOOL=OFF)
+  endif()
+
+  list(APPEND additional_cmake_args
+       -DUSE_WRAP_ITK:BOOL=OFF
+      )
+
+  if(PROJ_USE_OpenCV)
+    list(APPEND additional_cmake_args
+         -DModule_ITKVideoBridgeOpenCV:BOOL=ON
+         -DOpenCV_DIR:PATH=${OpenCV_DIR}
+        )
+  endif()
+
+  # Keep the behaviour of ITK 4.3 which by default turned on ITK Review
+  # see MITK bug #17338
+  list(APPEND additional_cmake_args
+    -DModule_ITKReview:BOOL=ON
+  # for 4.7, the OpenJPEG is needed by review but the variable must be set
+    -DModule_ITKOpenJPEG:BOOL=ON
+  )
+
+  ExternalProject_Add(${proj}
+     LIST_SEPARATOR ${sep}
+     URL ${MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL}/InsightToolkit-4.9.0.tar.xz
+     URL_MD5 0ce83c0f3c08f8ee992675fca4401572
+     # work with external GDCM
+     PATCH_COMMAND ${PATCH_COMMAND} -N -p1 -i ${CMAKE_CURRENT_LIST_DIR}/ITK-4.9.0.patch
+     CMAKE_GENERATOR ${gen}
+     CMAKE_ARGS
+       ${ep_common_args}
+       ${additional_cmake_args}
+       -DBUILD_EXAMPLES:BOOL=OFF
+       -DITK_USE_SYSTEM_GDCM:BOOL=ON
+       -DGDCM_DIR:PATH=${GDCM_DIR}
+     CMAKE_CACHE_ARGS
+       ${ep_common_cache_args}
+     CMAKE_CACHE_DEFAULT_ARGS
+       ${ep_common_cache_default_args}
+     DEPENDS ${proj_DEPENDENCIES}
+    )
+
+  set(ITK_DIR ${ep_prefix})
+  FunctionInstallExternalCMakeProject(${proj})
+
+else()
+
+  MacroEmptyExternalProject(${proj} "${proj_DEPENDENCIES}")
+
+endif()

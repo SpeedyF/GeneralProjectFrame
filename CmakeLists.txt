@@ -7,8 +7,11 @@ cmake_minimum_required(VERSION ${CMAKE_MINIMUM_REQUIRED_VERSION})
 
 # -----------include part ------------
 include(ExternalProject)	# Owned by CMake
-include(FunctionInstallExternalCMakeProject.cmake)
-include(MacroEmptyExternalProject.cmake)
+include(CMake/FunctionInstallExternalCMakeProject.cmake)
+include(CMake/MacroEmptyExternalProject.cmake)
+include(CMake/FunctionCheckCompilerFlags.cmake)
+include(CMake/FunctionGetMSVCVersion.cmake)
+include(CMake/FunctionUseModules.cmake)
 
 
 set(project_policies )
@@ -40,7 +43,7 @@ macro(downloadFile url dest)
   if(error_code)
     message(FATAL_ERROR "error: Failed to download ${url} - ${error_msg}")
   else()
-	message("Having downloaded successfully !")
+	#message("Having downloaded successfully !")
   endif()
 endmacro()
 
@@ -119,106 +122,128 @@ FILE(GLOB SRC_FILES "./*.c**")
 FILE(GLOB HEAD_FILES "./*.h**") 
 
 
-# ----------- ITK --------------
-
-
-# ----------- VTK --------------
-
-
 # *************** OpenCV ************
 option(PROJ_USE_OpenCV "Build the project with OpenCV." ON)
 if(PROJ_USE_OpenCV)
-
-  # Sanity checks
-  if(DEFINED OpenCV_DIR AND NOT EXISTS ${OpenCV_DIR})
-    message(FATAL_ERROR "OpenCV_DIR variable is defined but corresponds to non-existing directory")
-  endif()
-
-  set(proj OpenCV)
-  set(proj_DEPENDENCIES)
-  set(OpenCV_DEPENDS ${proj})
-
-  if(NOT DEFINED OpenCV_DIR)
-
-    set(additional_cmake_args
-      -DBUILD_opencv_java:BOOL=OFF
-      -DBUILD_opencv_ts:BOOL=OFF
-      -DBUILD_PERF_TESTS:BOOL=OFF
-    )
-
-    # 12-05-02, muellerm, added QT usage by OpenCV if QT is used
-    # 12-09-11, muellerm, removed automatic usage again, since this will struggle with the Qt application object
-    if(PROJ_USE_QT5)
-      list(APPEND additional_cmake_args
-           -DWITH_QT:BOOL=OFF
-           -DWITH_QT_OPENGL:BOOL=OFF
-           -DQT_QMAKE_EXECUTABLE:FILEPATH=${QT_QMAKE_EXECUTABLE}
-          )
-    endif()
-
-    set(opencv_url ${MYPROJ_THIRDPARTY_DOWNLOAD_PREFIX_URL}/opencv-2.4.13.2.tar.gz)
-    set(opencv_url_md5 80a4a3bee0e98898bbbc68986ca73655)
-
-    ExternalProject_Add(${proj}
-      LIST_SEPARATOR ${sep}
-      URL ${opencv_url}
-      URL_MD5 ${opencv_url_md5}
-      # Related bug: http://bugs.mitk.org/show_bug.cgi?id=5912
-      PATCH_COMMAND ${PATCH_COMMAND} -N -p1 -i ${CMAKE_CURRENT_LIST_DIR}/OpenCV.patch
-      CMAKE_GENERATOR ${gen}
-      CMAKE_ARGS
-        ${ep_common_args}
-		-DBUILD_opencv_python:BOOL=OFF
-        -DBUILD_NEW_PYTHON_SUPPORT:BOOL=OFF
-        -DBUILD_TESTS:BOOL=OFF
-        -DBUILD_DOCS:BOOL=OFF
-        -DBUILD_EXAMPLES:BOOL=OFF
-        -DBUILD_DOXYGEN_DOCS:BOOL=OFF
-        -DWITH_CUDA:BOOL=ON
-		
-        ${additional_cmake_args}
-      CMAKE_CACHE_ARGS
-        ${ep_common_cache_args}
-      CMAKE_CACHE_DEFAULT_ARGS
-        ${ep_common_cache_default_args}
-      DEPENDS ${proj_DEPENDENCIES}
-    )
-
-    set(OpenCV_DIR ${ep_prefix})
-    FunctionInstallExternalCMakeProject(${proj})
-
-  else()
-
-    MacroEmptyExternalProject(${proj} "${proj_DEPENDENCIES}")
-
-  endif()
-
+  include(CMake/OpenCV.cmake)
 endif()
 
-#set (OpenCV_DIR D:\Program Files\opencv-3.2.0\opencv\build) 
-find_package(OpenCV)
-include_directories(${OpenCV_INCLUDE_DIR})
-link_directories(${OpenCV_LIBRARY_DIR})
+# Another test about OpenCV
+  #set(OpenCV_DIR D:/Program Files/opencv-3.2.0/opencv/build) #D:\Program Files\opencv-3.2.0\opencv\build
+  #find_package(OpenCV REQUIRED)
+  #include_directories(${OpenCV_INCLUDE_DIR})
+  #link_directories(${OpenCV_LIBRARY_DIR})
 
-# ----------- OpenMP -------------
+
+# *********** GDCM *************
+include(CMake/GDCM.cmake)
+
+# *********** ITK **************
+include(CMake/ITK.cmake)
+
+# ----------- VTK --------------
+include(CMake/VTK.cmake)
 
 
+# ---- C/CXX Flags&&OpenMP ------
+
+set(PROJ_C_FLAGS "${COVERAGE_C_FLAGS}")
+set(PROJ_C_FLAGS_DEBUG )
+set(PROJ_C_FLAGS_RELEASE )
+set(PROJ_CXX_FLAGS "${COVERAGE_CXX_FLAGS} ${PROJ_CXX11_FLAG}")
+set(PROJ_CXX_FLAGS_DEBUG )
+set(PROJ_CXX_FLAGS_RELEASE )
+
+set(PROJ_EXE_LINKER_FLAGS )
+set(PROJ_SHARED_LINKER_FLAGS )
+
+find_package(OpenMP)
+
+if (OPENMP_FOUND)
+  set(PROJ_C_FLAGS "${PROJ_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(PROJ_CXX_FLAGS "${PROJ_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif()
+
+if(WIN32)
+  set(PROJ_CXX_FLAGS "${PROJ_CXX_FLAGS} -D_WIN32_WINNT=0x0501 -DPOCO_NO_UNWINDOWS -DWIN32_LEAN_AND_MEAN -DNOMINMAX")
+  FunctionCheckCompilerFlags("/wd4005" PROJ_CXX_FLAGS) # warning C4005: macro redefinition
+  FunctionCheckCompilerFlags("/wd4231" PROJ_CXX_FLAGS) # warning C4231: nonstandard extension used : 'extern' before template explicit instantiation
+  # the following line should be removed after fixing bug 17637
+  FunctionCheckCompilerFlags("/wd4316" PROJ_CXX_FLAGS) # warning C4316: object alignment on heap
+  FunctionCheckCompilerFlags("/wd4180" PROJ_CXX_FLAGS) # warning C4180: qualifier applied to function type has no meaning
+endif()
+
+if(NOT MSVC_VERSION)
+  foreach(_flag
+    -Wall
+    -Wextra
+    -Wpointer-arith
+    -Winvalid-pch
+    -Wcast-align
+    -Wwrite-strings
+    -Wno-error=gnu
+    -Wno-error=unknown-pragmas
+    # The strict-overflow warning is generated by ITK template code
+    -Wno-error=strict-overflow
+    -Woverloaded-virtual
+    -Wstrict-null-sentinel
+    #-Wold-style-cast
+    #-Wsign-promo
+
+    -Wno-array-bounds
+
+    -fdiagnostics-show-option
+    )
+    FunctionCheckCAndCXXCompilerFlags(${_flag} PROJ_C_FLAGS PROJ_CXX_FLAGS)
+  endforeach()
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX AND NOT APPLE)
+  FunctionCheckCompilerFlags("-Wl,--no-undefined" PROJ_SHARED_LINKER_FLAGS)
+  FunctionCheckCompilerFlags("-Wl,--as-needed" PROJ_SHARED_LINKER_FLAGS)
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+  FunctionCheckCAndCXXCompilerFlags("-fstack-protector-all" PROJ_C_FLAGS PROJ_CXX_FLAGS)
+
+  if(MINGW)
+    # suppress warnings about auto imported symbols
+    set(PROJ_SHARED_LINKER_FLAGS "-Wl,--enable-auto-import ${PROJ_SHARED_LINKER_FLAGS}")
+  endif()
+
+  set(PROJ_CXX_FLAGS_RELEASE "-U_FORTIFY_SOURCES -D_FORTIFY_SOURCE=2 ${PROJ_CXX_FLAGS_RELEASE}")
+endif()
+
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  FunctionCheckCompilerFlags("-stdlib=libc++" PROJ_CXX_FLAGS) # T20092
+endif()
+
+set(PROJ_MODULE_LINKER_FLAGS ${PROJ_SHARED_LINKER_FLAGS})
+set(PROJ_EXE_LINKER_FLAGS ${PROJ_SHARED_LINKER_FLAGS})
 
 # ----------- CUDA --------------
+option(PROJ_USE_CUDA "Build the project with CUDA." ON)
+if (PROJ_USE_CUDA)
+	#project(test_cuda_project)
+	# packages
+	find_package(CUDA)
+	# nvcc flags
+	set(CUDA_NVCC_FLAGS -gencode arch=compute_20,code=sm_20;-G;-g)
+	#set(CUDA_NVCC_FLAGS -gencode arch=compute_52,code=sm_52;-G;-g)
 
+	#file(GLOB_RECURSE CUDA_CURRENT_HEADERS  *.cuh)
+	file(GLOB CUDA_CURRENT_SOURCES  *.cu)
+	#source_group("Include" FILES ${CUDA_CURRENT_HEADERS}) 
+	source_group("Source" FILES ${CUDA_CURRENT_SOURCES}) 
+
+	#cuda_add_executable(test_cuda_project  ${CUDA_CURRENT_SOURCES}) #${CUDA_CURRENT_HEADERS}
+endif()
 
 # ----------- DL models ------------
 
 
-
-
 # ----------- Boost --------------
-
-
-
-# ----------- GDCM ---------------
-
-
+include(CMake/Boost.cmake)
 
 # ------------ MPI ---------------
 
@@ -226,14 +251,116 @@ link_directories(${OpenCV_LIBRARY_DIR})
 # ----------- MKL ----------------
 
 
-
 # ----------- OTHERS --------------
 
 
+#-----------------------------------------------------------------------------
+# PROJ Packages
+#-----------------------------------------------------------------------------
+
+set(PROJ_MODULES_PACKAGE_DEPENDS_DIR ${PROJ_SOURCE_DIR}/CMake/PackageDepends)
+set(MODULES_PACKAGE_DEPENDS_DIRS ${PROJ_MODULES_PACKAGE_DEPENDS_DIR})
+
+if(NOT PROJ_USE_SYSTEM_Boost)
+  set(Boost_NO_SYSTEM_PATHS 1)
+endif()
+
+set(Boost_USE_MULTITHREADED 1)
+set(Boost_USE_STATIC_LIBS 0)
+set(Boost_USE_STATIC_RUNTIME 0)
+set(Boost_ADDITIONAL_VERSIONS "1.60" "1.60.0")
+
+# We need this later for a DCMTK workaround
+#set(_dcmtk_dir_orig ${DCMTK_DIR})
+
+# This property is populated at the top half of this file
+get_property(PROJ_EXTERNAL_PROJECTS GLOBAL PROPERTY PROJ_EXTERNAL_PROJECTS)
+foreach(ep ${PROJ_EXTERNAL_PROJECTS})
+  get_property(_package GLOBAL PROPERTY PROJ_${ep}_PACKAGE)
+  get_property(_components GLOBAL PROPERTY PROJ_${ep}_COMPONENTS)
+  if(PROJ_USE_${ep} AND _package)
+    if(_components)
+      find_package(${_package} COMPONENTS ${_components} REQUIRED CONFIG)
+    else()
+      # Prefer config mode first because it finds external
+      # <proj>Config.cmake files pointed at by <proj>_DIR variables.
+      # Otherwise, existing Find<proj>.cmake files could fail.
+      # (e.g. in the case of GLEW and the FindGLEW.cmake file shipped
+      # with CMake).
+      find_package(${_package} QUIET CONFIG)
+      string(TOUPPER "${_package}" _package_uc)
+      if(NOT (${_package}_FOUND OR ${_package_uc}_FOUND))
+        find_package(${_package} REQUIRED)
+      endif()
+    endif()
+  endif()
+endforeach()
+
+# Ensure that the PROJ CMake module path comes first
+set(CMAKE_MODULE_PATH
+  ${PROJ_CMAKE_DIR}
+  ${CMAKE_MODULE_PATH}
+  )
+
+# Same as SOFA above
+link_directories(${Boost_LIBRARY_DIRS})
+
+if(PROJ_USE_OpenCL)
+  find_package(OpenCL REQUIRED)
+endif()
+
+# Qt support
+if(PROJ_USE_QT5)
+  find_package(Qt5Core ${PROJ_QT5_MINIMUM_VERSION} REQUIRED) # at least Core required
+  get_target_property(_qmake_exec Qt5::qmake LOCATION)
+  execute_process(COMMAND ${_qmake_exec} -query QT_INSTALL_BINS
+    RESULT_VARIABLE _result
+     OUTPUT_VARIABLE QT_BINARY_DIR
+    ERROR_VARIABLE _error
+  )
+  string(STRIP "${QT_BINARY_DIR}" QT_BINARY_DIR)
+  if(_result OR NOT EXISTS "${QT_BINARY_DIR}")
+    message(FATAL_ERROR "Could not determine Qt binary directory: ${_result} ${QT_BINARY_DIR} ${_error}")
+  endif()
+
+  find_program(QT_HELPGENERATOR_EXECUTABLE
+    NAMES qhelpgenerator qhelpgenerator-qt5 qhelpgenerator5
+    PATHS ${QT_BINARY_DIR}
+    NO_DEFAULT_PATH
+  )
+
+  find_program(QT_COLLECTIONGENERATOR_EXECUTABLE
+    NAMES qcollectiongenerator qcollectiongenerator-qt5 qcollectiongenerator5
+    PATHS ${QT_BINARY_DIR}
+    NO_DEFAULT_PATH
+  )
+
+  find_program(QT_ASSISTANT_EXECUTABLE
+    NAMES assistant assistant-qt5 assistant5
+    PATHS ${QT_BINARY_DIR}
+    NO_DEFAULT_PATH
+  )
+
+  find_program(QT_XMLPATTERNS_EXECUTABLE
+    NAMES xmlpatterns
+    PATHS ${QT_BINARY_DIR}
+    NO_DEFAULT_PATH
+  )
+
+  mark_as_advanced(QT_HELPGENERATOR_EXECUTABLE
+                   QT_COLLECTIONGENERATOR_EXECUTABLE
+                   QT_ASSISTANT_EXECUTABLE
+                   QT_XMLPATTERNS_EXECUTABLE
+                  )
+
+endif()
+
+
+# ----------- execution -------------
 include(CheckFunctionExists)
 check_function_exists(printf HAVE_PRINTF)
 
-add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} ${RCC_FILES} ${WRAP_FILES})
+add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES} ${RCC_FILES} ${WRAP_FILES} ${CUDA_CURRENT_SOURCES})
 
 target_link_libraries(${PROJECT_NAME} Qt5::Widgets Qt5::Core Qt5::Gui ${OpenCV_LIBRARIES})
 
@@ -278,8 +405,8 @@ endif()
 #-----------------------------------------------------------------------------
 
 if(WIN32)
-  set(_src_dir_length_max 120)
-  set(_bin_dir_length_max 120)
+  set(_src_dir_length_max 50)  # short path length For ITK, etc.
+  set(_bin_dir_length_max 50)
 
   string(LENGTH "${MYPROJ_SOURCE_DIR}" _src_n)
   string(LENGTH "${MYPROJ_BINARY_DIR}" _bin_n)
